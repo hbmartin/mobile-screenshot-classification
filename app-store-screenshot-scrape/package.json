@@ -1,0 +1,11 @@
+{
+  "name": "app-store-screenshot-scrape",
+  "version": "1.0.0",
+  "main": "index.js",
+  "author": "Harold Martin",
+  "license": "MIT",
+  "dependencies": {
+    "app-store-scraper": "^0.17.0",
+    "axios": "^1.3.4"
+  }
+}
