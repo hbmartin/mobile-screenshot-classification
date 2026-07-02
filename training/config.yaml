@@ -1,0 +1,53 @@
+# Single source of truth for the training pipeline. Every knob lives here so
+# runs are reproducible from a config + code revision.
+seed: 123
+
+data:
+  # Directory of per-app screenshot folders (one subdirectory per class).
+  dir: ../training-v1/screenshots
+  # Fixed split manifest written by split.py (run dedupe.py first). When set,
+  # it overrides the random validation_split/test_fraction split below and
+  # keeps the test set stable across runs and machines.
+  manifest: null
+  # Portrait input matching App Store screenshots; images are center-cropped
+  # to this aspect ratio rather than squashed.
+  image_height: 696
+  image_width: 392
+  batch_size: 32
+  # Fraction of images held out of training; a slice of that holdout becomes
+  # the test set, the rest is the validation set. Only used when manifest is
+  # null.
+  validation_split: 0.2
+  test_fraction: 0.2
+
+model:
+  # mobilenet_v2 (small, fast) or efficientnet_v2_s (stronger)
+  backbone: mobilenet_v2
+  dropout: 0.2
+
+# Screenshot-appropriate augmentation: mild geometric and photometric jitter,
+# no flips or rotations (UI text and layout are not flip-invariant).
+# Set a value to 0 to disable that transform.
+augmentation:
+  translation: 0.05
+  zoom: 0.1
+  contrast: 0.1
+  brightness: 0.1
+
+train:
+  epochs: 20
+  learning_rate: 1.0e-4
+  # Second stage: unfreeze the top of the backbone and continue at a lower LR.
+  fine_tune: true
+  fine_tune_epochs: 10
+  fine_tune_at: 100
+  fine_tune_learning_rate: 1.0e-5
+  label_smoothing: 0.1
+  # Weight the loss by inverse class frequency (apps have 1-10 screenshots).
+  class_weights: true
+  early_stopping_patience: 5
+  reduce_lr_patience: 3
+
+output:
+  model_dir: models
+  log_dir: logs

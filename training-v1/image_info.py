@@ -50,6 +50,7 @@ def get_image_size(file_path: str) -> tuple[Optional[int], Optional[int]]:
         jpeg = BytesIO(data)
         jpeg.read(2)
         b = jpeg.read(1)
+        w = h = None
         try:
             while (b and ord(b) != 0xDA):
                 while (ord(b) != 0xFF): b = jpeg.read(1)
@@ -61,11 +62,15 @@ def get_image_size(file_path: str) -> tuple[Optional[int], Optional[int]]:
                 else:
                     jpeg.read(int(struct.unpack(">H", jpeg.read(2))[0])-2)
                 b = jpeg.read(1)
-            width = int(w)
-            height = int(h)
+            if w is not None and h is not None:
+                width = int(w)
+                height = int(h)
         except struct.error:
             pass
         except ValueError:
+            pass
+        except TypeError:
+            # ord() on b"" when the file ends before a size marker is found
             pass
 
     return width, height
