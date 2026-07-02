@@ -19,8 +19,8 @@ from datetime import datetime
 import tensorflow as tf
 import yaml
 
-from data import load_datasets
-from model import build_model, unfreeze_top_layers
+from data import compute_class_weights, load_datasets
+from model import build_loss, build_metrics, build_model, unfreeze_top_layers
 
 
 def parse_args():
@@ -55,19 +55,47 @@ def main():
     model, base_model = build_model(len(class_names), cfg)
 
     train_cfg = cfg["train"]
-    callbacks = [tf.keras.callbacks.TensorBoard(log_dir=log_dir)]
+    loss = build_loss(len(class_names), train_cfg.get("label_smoothing", 0.0))
+    class_weight = (
+        compute_class_weights(cfg, class_names)
+        if train_cfg.get("class_weights")
+        else None
+    )
+
+    def make_callbacks():
+        # Fresh instances per stage so EarlyStopping state doesn't leak from
+        # feature extraction into fine-tuning.
+        return [
+            tf.keras.callbacks.TensorBoard(log_dir=log_dir),
+            tf.keras.callbacks.EarlyStopping(
+                monitor="val_accuracy",
+                patience=train_cfg["early_stopping_patience"],
+                restore_best_weights=True,
+            ),
+            tf.keras.callbacks.ReduceLROnPlateau(
+                monitor="val_loss",
+                factor=0.5,
+                patience=train_cfg["reduce_lr_patience"],
+            ),
+            tf.keras.callbacks.ModelCheckpoint(
+                os.path.join(model_dir, "checkpoint.keras"),
+                monitor="val_accuracy",
+                save_best_only=True,
+            ),
+        ]
 
     # Stage 1: feature extraction with the backbone frozen.
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=train_cfg["learning_rate"]),
-        loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
-        metrics=["accuracy"],
+        loss=loss,
+        metrics=build_metrics(),
     )
-    model.fit(
+    history = model.fit(
         train_ds,
         validation_data=val_ds,
         epochs=train_cfg["epochs"],
-        callbacks=callbacks,
+        class_weight=class_weight,
+        callbacks=make_callbacks(),
     )
 
     # Stage 2: unfreeze the top of the backbone and continue at a lower LR.
@@ -77,15 +105,17 @@ def main():
             optimizer=tf.keras.optimizers.Adam(
                 learning_rate=train_cfg["fine_tune_learning_rate"]
             ),
-            loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
-            metrics=["accuracy"],
+            loss=loss,
+            metrics=build_metrics(),
         )
+        last_epoch = history.epoch[-1] + 1
         model.fit(
             train_ds,
             validation_data=val_ds,
-            epochs=train_cfg["epochs"] + train_cfg["fine_tune_epochs"],
-            initial_epoch=train_cfg["epochs"],
-            callbacks=callbacks,
+            epochs=last_epoch + train_cfg["fine_tune_epochs"],
+            initial_epoch=last_epoch,
+            class_weight=class_weight,
+            callbacks=make_callbacks(),
         )
 
     model.save(os.path.join(model_dir, "model.keras"))
@@ -93,8 +123,12 @@ def main():
         json.dump(class_names, f, ensure_ascii=False, indent=2)
     shutil.copyfile(args.config, os.path.join(model_dir, "config.yaml"))
 
-    test_loss, test_accuracy = model.evaluate(test_ds)
-    print(f"Test loss: {test_loss:.4f}  Test accuracy: {test_accuracy:.4f}")
+    results = model.evaluate(test_ds, return_dict=True)
+    print(
+        f"Test loss: {results['loss']:.4f}  "
+        f"accuracy: {results['accuracy']:.4f}  "
+        f"top-5 accuracy: {results['top5_accuracy']:.4f}"
+    )
     print(f"Saved run to {model_dir}")
 
 

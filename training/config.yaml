@@ -16,8 +16,18 @@ data:
   test_fraction: 0.2
 
 model:
+  # mobilenet_v2 (small, fast) or efficientnet_v2_s (stronger)
   backbone: mobilenet_v2
   dropout: 0.2
+
+# Screenshot-appropriate augmentation: mild geometric and photometric jitter,
+# no flips or rotations (UI text and layout are not flip-invariant).
+# Set a value to 0 to disable that transform.
+augmentation:
+  translation: 0.05
+  zoom: 0.1
+  contrast: 0.1
+  brightness: 0.1
 
 train:
   epochs: 20
@@ -27,6 +37,11 @@ train:
   fine_tune_epochs: 10
   fine_tune_at: 100
   fine_tune_learning_rate: 1.0e-5
+  label_smoothing: 0.1
+  # Weight the loss by inverse class frequency (apps have 1-10 screenshots).
+  class_weights: true
+  early_stopping_patience: 5
+  reduce_lr_patience: 3
 
 output:
   model_dir: models

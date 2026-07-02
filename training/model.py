@@ -8,7 +8,35 @@ BACKBONES = {
         tf.keras.applications.MobileNetV2,
         tf.keras.applications.mobilenet_v2.preprocess_input,
     ),
+    "efficientnet_v2_s": (
+        tf.keras.applications.EfficientNetV2S,
+        tf.keras.applications.efficientnet_v2.preprocess_input,
+    ),
 }
+
+
+def build_augmentation(cfg):
+    """Augmentation layers suited to screenshots.
+
+    Deliberately no flips or rotations: UI text and layout are not
+    flip-invariant, and a mirrored screenshot is not a plausible input.
+    These layers are only active during training.
+    """
+    aug_cfg = cfg.get("augmentation") or {}
+    layers = []
+    if aug_cfg.get("translation"):
+        layers.append(
+            tf.keras.layers.RandomTranslation(
+                aug_cfg["translation"], aug_cfg["translation"], fill_mode="constant"
+            )
+        )
+    if aug_cfg.get("zoom"):
+        layers.append(tf.keras.layers.RandomZoom(aug_cfg["zoom"], fill_mode="constant"))
+    if aug_cfg.get("contrast"):
+        layers.append(tf.keras.layers.RandomContrast(aug_cfg["contrast"]))
+    if aug_cfg.get("brightness"):
+        layers.append(tf.keras.layers.RandomBrightness(aug_cfg["brightness"]))
+    return layers
 
 
 def build_model(num_classes, cfg):
@@ -31,7 +59,10 @@ def build_model(num_classes, cfg):
     base_model.trainable = False
 
     inputs = tf.keras.Input(shape=input_shape)
-    x = preprocess(inputs)
+    x = inputs
+    for layer in build_augmentation(cfg):
+        x = layer(x)
+    x = preprocess(x)
     # training=False keeps BatchNormalization in inference mode so its
     # statistics survive later unfreezing.
     x = base_model(x, training=False)
@@ -39,6 +70,33 @@ def build_model(num_classes, cfg):
     x = tf.keras.layers.Dropout(model_cfg["dropout"])(x)
     outputs = tf.keras.layers.Dense(num_classes)(x)
     return tf.keras.Model(inputs, outputs), base_model
+
+
+def build_loss(num_classes, label_smoothing):
+    """Cross-entropy over integer labels, with optional label smoothing.
+
+    SparseCategoricalCrossentropy has no label_smoothing argument, so when
+    smoothing is requested the integer labels are one-hot encoded inside the
+    loss.
+    """
+    if not label_smoothing:
+        return tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
+    cce = tf.keras.losses.CategoricalCrossentropy(
+        from_logits=True, label_smoothing=label_smoothing
+    )
+
+    def loss(y_true, y_pred):
+        y_true = tf.one_hot(tf.cast(tf.reshape(y_true, [-1]), tf.int32), num_classes)
+        return cce(y_true, y_pred)
+
+    return loss
+
+
+def build_metrics():
+    return [
+        tf.keras.metrics.SparseCategoricalAccuracy(name="accuracy"),
+        tf.keras.metrics.SparseTopKCategoricalAccuracy(k=5, name="top5_accuracy"),
+    ]
 
 
 def unfreeze_top_layers(base_model, fine_tune_at):

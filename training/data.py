@@ -1,6 +1,10 @@
 """Dataset loading shared by train.py and evaluate.py."""
 
+import os
+
 import tensorflow as tf
+
+IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg")
 
 
 def load_datasets(cfg):
@@ -33,3 +37,20 @@ def load_datasets(cfg):
     val_ds = val_ds.prefetch(autotune)
     test_ds = test_ds.prefetch(autotune)
     return train_ds, val_ds, test_ds, class_names
+
+
+def compute_class_weights(cfg, class_names):
+    """Inverse-frequency weights so apps with few screenshots aren't drowned
+    out by apps with many.
+
+    Counts all files per class directory (not just the training split) —
+    close enough given the split is stratified only by chance, and it avoids
+    iterating the dataset a second time.
+    """
+    data_dir = cfg["data"]["dir"]
+    counts = []
+    for name in class_names:
+        files = os.listdir(os.path.join(data_dir, name))
+        counts.append(max(1, sum(f.lower().endswith(IMAGE_EXTENSIONS) for f in files)))
+    total = sum(counts)
+    return {i: total / (len(class_names) * c) for i, c in enumerate(counts)}
