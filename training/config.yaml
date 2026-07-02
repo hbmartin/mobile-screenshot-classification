@@ -1,0 +1,33 @@
+# Single source of truth for the training pipeline. Every knob lives here so
+# runs are reproducible from a config + code revision.
+seed: 123
+
+data:
+  # Directory of per-app screenshot folders (one subdirectory per class).
+  dir: ../training-v1/screenshots
+  # Portrait input matching App Store screenshots; images are center-cropped
+  # to this aspect ratio rather than squashed.
+  image_height: 696
+  image_width: 392
+  batch_size: 32
+  # Fraction of images held out of training; a slice of that holdout becomes
+  # the test set, the rest is the validation set.
+  validation_split: 0.2
+  test_fraction: 0.2
+
+model:
+  backbone: mobilenet_v2
+  dropout: 0.2
+
+train:
+  epochs: 20
+  learning_rate: 1.0e-4
+  # Second stage: unfreeze the top of the backbone and continue at a lower LR.
+  fine_tune: true
+  fine_tune_epochs: 10
+  fine_tune_at: 100
+  fine_tune_learning_rate: 1.0e-5
+
+output:
+  model_dir: models
+  log_dir: logs
