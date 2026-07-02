@@ -5,13 +5,18 @@ seed: 123
 data:
   # Directory of per-app screenshot folders (one subdirectory per class).
   dir: ../training-v1/screenshots
+  # Fixed split manifest written by split.py (run dedupe.py first). When set,
+  # it overrides the random validation_split/test_fraction split below and
+  # keeps the test set stable across runs and machines.
+  manifest: null
   # Portrait input matching App Store screenshots; images are center-cropped
   # to this aspect ratio rather than squashed.
   image_height: 696
   image_width: 392
   batch_size: 32
   # Fraction of images held out of training; a slice of that holdout becomes
-  # the test set, the rest is the validation set.
+  # the test set, the rest is the validation set. Only used when manifest is
+  # null.
   validation_split: 0.2
   test_fraction: 0.2
 

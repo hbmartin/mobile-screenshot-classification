@@ -22,20 +22,40 @@ node index.js > top_grossing_ios.csv   # list top apps (id, bundle id, title)
 node get_screenshots.js                # download screenshots per app id
 ```
 
+The scraper downloads with retries and bounded concurrency, and records
+every image (URL, path, sha256) in `screenshots/manifest.jsonl`, so an
+interrupted run can simply be re-run and resumes where it left off.
+Environment variables tune it: `INPUT_CSV`, `OUT_DIR`, `CONCURRENCY`, and
+`COUNTRY` (different storefronts often carry different screenshots, so
+scraping several countries multiplies the dataset).
+
 Downloads land in one directory per app id. `training-v1/rename_dirs.py`
 renames those directories to app titles so the directory name becomes the
 class label.
 
-### 2. Clean the data
+### 2. Clean and split the data
 
 ```bash
 cd training-v1
 python find_landscape.py
+
+cd ../training
+python dedupe.py                # report near-duplicate screenshots
+python dedupe.py --delete      # remove same-class duplicates
+python split.py                 # write a fixed train/val/test manifest.csv
 ```
 
-Flags images that are too small or unreadable, and letterbox-pads landscape
-screenshots onto a portrait canvas (orientation is preserved rather than
-rotating).
+`find_landscape.py` flags images that are too small or unreadable, and
+letterbox-pads landscape screenshots onto a portrait canvas (orientation is
+preserved rather than rotating).
+
+`dedupe.py` finds near-identical screenshots by perceptual hash — duplicates
+that straddle the train/validation split inflate validation accuracy, and
+duplicates spanning two classes are label noise (reported, never deleted
+automatically). `split.py` then writes a stratified `manifest.csv`; point
+`data.manifest` in `training/config.yaml` at it so every run and every
+machine trains against the same split. Commit the manifest to version the
+dataset.
 
 ### 3. Train
 
