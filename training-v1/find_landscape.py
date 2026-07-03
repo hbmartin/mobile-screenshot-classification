@@ -4,6 +4,7 @@ from PIL import Image
 
 MIN_WIDTH = 392
 MIN_HEIGHT = 696
+IMAGE_EXTENSIONS = (".jpg", ".png", ".jpeg")
 # Height / width of the training input; landscape images are padded onto a
 # canvas of this aspect ratio instead of being rotated, so their real
 # orientation is preserved.
@@ -19,18 +20,19 @@ def pad_to_portrait(image_file):
             return None
         canvas = Image.new("RGB", (width, target_height))
         canvas.paste(im, (0, (target_height - height) // 2))
-    out_name = ".".join(image_file.split(".")[:-1]) + "_padded.png"
+    out_name = os.path.splitext(image_file)[0] + "_padded.png"
     canvas.save(out_name)
     os.remove(image_file)
     return out_name
 
 
 for dirpath, _, filenames in os.walk("screenshots"):
-    if len(filenames) < 2:
+    image_names = [name for name in filenames if name.lower().endswith(IMAGE_EXTENSIONS)]
+    if len(image_names) < 2:
         print("TOO SMALL: " + dirpath)
         continue
     for image in filenames:
-        if not image.lower().endswith((".jpg", ".png", ".jpeg")):
+        if not image.lower().endswith(IMAGE_EXTENSIONS):
             print("Not processing: " + image)
             continue
         image_file = os.path.join(dirpath, image)

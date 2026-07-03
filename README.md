@@ -83,14 +83,16 @@ python evaluate.py models/my-experiment
 python predict.py models/my-experiment path/to/screenshot.png
 ```
 
-`evaluate.py` re-derives the exact train/validation/test split from the seed
-and config stored with the run, so numbers are comparable across machines.
+`evaluate.py` rebuilds the split from the config stored with the run. If
+`data.manifest` is set, the committed manifest is the source of truth; if it is
+unset, the split is derived from the seed and the current directory contents.
 
 ## Reproducibility notes
 
 - `seed` in `config.yaml` seeds Python, NumPy, and TensorFlow
-  (`tf.keras.utils.set_random_seed`), and the dataset split is derived from
-  it deterministically.
+  (`tf.keras.utils.set_random_seed`). Directory-mode splits are deterministic
+  only while the source directory contents are unchanged; manifest-mode splits
+  are stable because the manifest is versioned.
 - Dependencies are pinned in `training/requirements.txt`.
 - Trained models, logs, and the screenshot dataset are not committed; each
   run directory carries the config needed to reproduce it.

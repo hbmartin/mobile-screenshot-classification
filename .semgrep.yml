@@ -1,0 +1,46 @@
+rules:
+  - id: keras-load-model-requires-compile-false
+    languages:
+      - python
+    severity: WARNING
+    message: "Use compile=False when loading Keras models for inference or custom-loss evaluation."
+    patterns:
+      - pattern: tf.keras.models.load_model(...)
+      - pattern-not: tf.keras.models.load_model(..., compile=False, ...)
+
+  - id: avoid-shuffled-holdout-take-skip-split
+    languages:
+      - python
+    severity: ERROR
+    message: "Do not split a shuffled tf.data holdout with take()/skip(); it can overlap between validation and test."
+    pattern-either:
+      - patterns:
+          - pattern: |
+              $COMMON = dict(..., shuffle=True, ...)
+              ...
+              $HOLDOUT = tf.keras.utils.image_dataset_from_directory(..., **$COMMON)
+              ...
+              $TEST = $HOLDOUT.take(...)
+              ...
+              $VAL = $HOLDOUT.skip(...)
+      - patterns:
+          - pattern: |
+              $HOLDOUT = tf.keras.utils.image_dataset_from_directory(..., shuffle=True, ...)
+              ...
+              $TEST = $HOLDOUT.take(...)
+              ...
+              $VAL = $HOLDOUT.skip(...)
+
+  - id: blocked-vulnerable-training-pins
+    languages:
+      - generic
+    severity: ERROR
+    message: "This training dependency pin has known high-severity vulnerabilities; use a patched version."
+    paths:
+      include:
+        - training/requirements.txt
+    pattern-either:
+      - pattern: Pillow==10.4.0
+      - pattern: keras==3.0.0
+      - pattern: keras==3.1.0
+      - pattern: keras==3.2.0

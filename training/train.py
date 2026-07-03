@@ -38,17 +38,26 @@ def parse_args():
     return parser.parse_args()
 
 
+def resolve_config_relative(config_path, value):
+    if os.path.isabs(value):
+        return value
+    return os.path.join(os.path.dirname(config_path), value)
+
+
 def main():
     args = parse_args()
-    with open(args.config) as f:
+    config_path = os.path.abspath(args.config)
+    with open(config_path, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
 
     # Seeds Python, NumPy, and TensorFlow in one call.
     tf.keras.utils.set_random_seed(cfg["seed"])
 
     run_name = args.run_name or datetime.now().strftime("%Y%m%d-%H%M%S")
-    model_dir = os.path.join(cfg["output"]["model_dir"], run_name)
-    log_dir = os.path.join(cfg["output"]["log_dir"], run_name)
+    model_root = resolve_config_relative(config_path, cfg["output"]["model_dir"])
+    log_root = resolve_config_relative(config_path, cfg["output"]["log_dir"])
+    model_dir = os.path.join(model_root, run_name)
+    log_dir = os.path.join(log_root, run_name)
     os.makedirs(model_dir, exist_ok=True)
 
     train_ds, val_ds, test_ds, class_names = load_datasets(cfg)
@@ -119,9 +128,9 @@ def main():
         )
 
     model.save(os.path.join(model_dir, "model.keras"))
-    with open(os.path.join(model_dir, "class_names.json"), "w") as f:
+    with open(os.path.join(model_dir, "class_names.json"), "w", encoding="utf-8") as f:
         json.dump(class_names, f, ensure_ascii=False, indent=2)
-    shutil.copyfile(args.config, os.path.join(model_dir, "config.yaml"))
+    shutil.copyfile(config_path, os.path.join(model_dir, "config.yaml"))
 
     results = model.evaluate(test_ds, return_dict=True)
     print(

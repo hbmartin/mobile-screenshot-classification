@@ -27,20 +27,43 @@ def _load_from_directory(cfg):
     common = dict(
         directory=data_cfg["dir"],
         image_size=(data_cfg["image_height"], data_cfg["image_width"]),
-        batch_size=data_cfg["batch_size"],
+        batch_size=None,
         crop_to_aspect_ratio=True,
         validation_split=data_cfg["validation_split"],
         seed=cfg["seed"],
-        shuffle=True,
+        shuffle=False,
     )
     train_ds = tf.keras.utils.image_dataset_from_directory(subset="training", **common)
     holdout_ds = tf.keras.utils.image_dataset_from_directory(subset="validation", **common)
     class_names = train_ds.class_names
 
-    holdout_batches = tf.data.experimental.cardinality(holdout_ds).numpy()
-    test_batches = int(holdout_batches * data_cfg["test_fraction"])
-    test_ds = holdout_ds.take(test_batches)
-    val_ds = holdout_ds.skip(test_batches)
+    test_fraction = data_cfg["test_fraction"]
+    if test_fraction <= 0 or test_fraction >= 1:
+        raise ValueError("data.test_fraction must be greater than 0 and less than 1")
+
+    train_count = tf.data.experimental.cardinality(train_ds).numpy()
+    holdout_count = tf.data.experimental.cardinality(holdout_ds).numpy()
+    if train_count <= 0:
+        raise ValueError("Directory split produced no training images")
+    if holdout_count < 2:
+        raise ValueError(
+            "Directory split needs at least two holdout images to create "
+            "validation and test datasets; set data.manifest for small datasets"
+        )
+
+    test_count = max(1, round(holdout_count * test_fraction))
+    test_count = min(test_count, holdout_count - 1)
+
+    train_ds = train_ds.shuffle(
+        train_count, seed=cfg["seed"], reshuffle_each_iteration=True
+    )
+    test_ds = holdout_ds.take(test_count)
+    val_ds = holdout_ds.skip(test_count)
+
+    batch_size = data_cfg["batch_size"]
+    train_ds = train_ds.batch(batch_size)
+    val_ds = val_ds.batch(batch_size)
+    test_ds = test_ds.batch(batch_size)
     return _prefetch(train_ds, val_ds, test_ds) + (class_names,)
 
 
@@ -49,7 +72,7 @@ def read_manifest(manifest_path):
     relative paths resolved against the manifest's directory."""
     base = os.path.dirname(os.path.abspath(manifest_path))
     rows = []
-    with open(manifest_path, newline="") as f:
+    with open(manifest_path, newline="", encoding="utf-8") as f:
         for row in csv.DictReader(f):
             path = row["path"]
             if not os.path.isabs(path):
@@ -72,7 +95,7 @@ def _load_from_manifest(cfg):
         if shuffle:
             ds = ds.shuffle(len(paths), seed=cfg["seed"], reshuffle_each_iteration=True)
         ds = ds.map(
-            lambda path, label: (_load_image(path, image_size), label),
+            lambda path, label: (load_image(path, image_size), label),
             num_parallel_calls=tf.data.AUTOTUNE,
         )
         return ds.batch(data_cfg["batch_size"])
@@ -83,7 +106,7 @@ def _load_from_manifest(cfg):
     return _prefetch(train_ds, val_ds, test_ds) + (class_names,)
 
 
-def _load_image(path, image_size):
+def load_image(path, image_size):
     """Decode, center-crop to the target aspect ratio, and resize — the same
     treatment crop_to_aspect_ratio=True applies in directory mode."""
     image = tf.image.decode_image(

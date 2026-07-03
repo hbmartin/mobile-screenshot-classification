@@ -40,6 +40,8 @@ train:
   # Second stage: unfreeze the top of the backbone and continue at a lower LR.
   fine_tune: true
   fine_tune_epochs: 10
+  # Absolute layer index into the selected backbone. Re-tune when changing
+  # model.backbone because each architecture has a different layer count.
   fine_tune_at: 100
   fine_tune_learning_rate: 1.0e-5
   label_smoothing: 0.1
