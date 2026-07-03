@@ -9,10 +9,12 @@ Two modes, selected by config:
 
 import csv
 import os
+import random
 
 import tensorflow as tf
 
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg")
+DEFAULT_SHUFFLE_BUFFER_SIZE = 10000
 
 
 def load_datasets(cfg):
@@ -24,25 +26,24 @@ def load_datasets(cfg):
 
 def _load_from_directory(cfg):
     data_cfg = cfg["data"]
-    common = dict(
-        directory=data_cfg["dir"],
-        image_size=(data_cfg["image_height"], data_cfg["image_width"]),
-        batch_size=None,
-        crop_to_aspect_ratio=True,
-        validation_split=data_cfg["validation_split"],
-        seed=cfg["seed"],
-        shuffle=False,
-    )
-    train_ds = tf.keras.utils.image_dataset_from_directory(subset="training", **common)
-    holdout_ds = tf.keras.utils.image_dataset_from_directory(subset="validation", **common)
-    class_names = train_ds.class_names
+    image_size = (data_cfg["image_height"], data_cfg["image_width"])
+    rows, class_names = _list_directory_rows(data_cfg["dir"])
+    total_count = len(rows)
+    if total_count <= 0:
+        raise ValueError("Directory produced no images")
 
+    val_split = data_cfg["validation_split"]
     test_fraction = data_cfg["test_fraction"]
+    if val_split <= 0 or val_split >= 1:
+        raise ValueError("data.validation_split must be greater than 0 and less than 1")
     if test_fraction <= 0 or test_fraction >= 1:
         raise ValueError("data.test_fraction must be greater than 0 and less than 1")
 
-    train_count = tf.data.experimental.cardinality(train_ds).numpy()
-    holdout_count = tf.data.experimental.cardinality(holdout_ds).numpy()
+    rows = list(rows)
+    random.Random(cfg["seed"]).shuffle(rows)
+
+    holdout_count = round(total_count * val_split)
+    train_count = total_count - holdout_count
     if train_count <= 0:
         raise ValueError("Directory split produced no training images")
     if holdout_count < 2:
@@ -54,17 +55,65 @@ def _load_from_directory(cfg):
     test_count = max(1, round(holdout_count * test_fraction))
     test_count = min(test_count, holdout_count - 1)
 
-    train_ds = train_ds.shuffle(
-        train_count, seed=cfg["seed"], reshuffle_each_iteration=True
-    )
-    test_ds = holdout_ds.take(test_count)
-    val_ds = holdout_ds.skip(test_count)
+    train_rows = rows[:train_count]
+    holdout_rows = rows[train_count:]
+    test_rows = holdout_rows[:test_count]
+    val_rows = holdout_rows[test_count:]
 
-    batch_size = data_cfg["batch_size"]
-    train_ds = train_ds.batch(batch_size)
-    val_ds = val_ds.batch(batch_size)
-    test_ds = test_ds.batch(batch_size)
+    train_ds = _rows_to_dataset(
+        train_rows, image_size, data_cfg, cfg["seed"], shuffle=True
+    )
+    val_ds = _rows_to_dataset(val_rows, image_size, data_cfg, cfg["seed"], shuffle=False)
+    test_ds = _rows_to_dataset(
+        test_rows, image_size, data_cfg, cfg["seed"], shuffle=False
+    )
     return _prefetch(train_ds, val_ds, test_ds) + (class_names,)
+
+
+def _list_directory_rows(data_dir):
+    rows = []
+    class_names = []
+    for class_name in sorted(os.listdir(data_dir)):
+        class_dir = os.path.join(data_dir, class_name)
+        if not os.path.isdir(class_dir):
+            continue
+        class_index = len(class_names)
+        class_names.append(class_name)
+        for dirpath, dirnames, filenames in os.walk(class_dir):
+            dirnames.sort()
+            for name in sorted(filenames):
+                if not name.lower().endswith(IMAGE_EXTENSIONS):
+                    continue
+                rows.append((os.path.join(dirpath, name), class_index))
+    return rows, class_names
+
+
+def _rows_to_dataset(rows, image_size, data_cfg, seed, shuffle):
+    paths = [path for path, _ in rows]
+    labels = [label for _, label in rows]
+    ds = tf.data.Dataset.from_tensor_slices((paths, labels))
+    if shuffle and len(rows) > 1:
+        ds = ds.shuffle(
+            _shuffle_buffer_size(data_cfg, len(rows)),
+            seed=seed,
+            reshuffle_each_iteration=True,
+        )
+    ds = ds.map(
+        lambda path, label: (load_image(path, image_size), label),
+        num_parallel_calls=tf.data.AUTOTUNE,
+    )
+    return ds.batch(data_cfg["batch_size"])
+
+
+def _shuffle_buffer_size(data_cfg, count):
+    configured = data_cfg.get("shuffle_buffer_size", DEFAULT_SHUFFLE_BUFFER_SIZE)
+    try:
+        buffer_size = int(configured)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("data.shuffle_buffer_size must be a positive integer") from exc
+    if buffer_size <= 0:
+        raise ValueError("data.shuffle_buffer_size must be a positive integer")
+    return min(count, buffer_size)
 
 
 def read_manifest(manifest_path):
@@ -92,8 +141,12 @@ def _load_from_manifest(cfg):
         paths = [p for p, _, s in rows if s == split]
         labels = [class_index[c] for _, c, s in rows if s == split]
         ds = tf.data.Dataset.from_tensor_slices((paths, labels))
-        if shuffle:
-            ds = ds.shuffle(len(paths), seed=cfg["seed"], reshuffle_each_iteration=True)
+        if shuffle and len(paths) > 1:
+            ds = ds.shuffle(
+                _shuffle_buffer_size(data_cfg, len(paths)),
+                seed=cfg["seed"],
+                reshuffle_each_iteration=True,
+            )
         ds = ds.map(
             lambda path, label: (load_image(path, image_size), label),
             num_parallel_calls=tf.data.AUTOTUNE,
@@ -154,6 +207,9 @@ def _class_counts(cfg, class_names):
     data_dir = cfg["data"]["dir"]
     counts = []
     for name in class_names:
-        files = os.listdir(os.path.join(data_dir, name))
-        counts.append(max(1, sum(f.lower().endswith(IMAGE_EXTENSIONS) for f in files)))
+        class_dir = os.path.join(data_dir, name)
+        count = 0
+        for _, _, files in os.walk(class_dir):
+            count += sum(f.lower().endswith(IMAGE_EXTENSIONS) for f in files)
+        counts.append(max(1, count))
     return counts
