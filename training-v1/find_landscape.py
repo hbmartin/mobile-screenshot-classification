@@ -31,10 +31,7 @@ for dirpath, _, filenames in os.walk("screenshots"):
     if len(image_names) < 2:
         print("TOO SMALL: " + dirpath)
         continue
-    for image in filenames:
-        if not image.lower().endswith(IMAGE_EXTENSIONS):
-            print("Not processing: " + image)
-            continue
+    for image in image_names:
         image_file = os.path.join(dirpath, image)
         width, height = get_image_size(image_file)
         if width is None or height is None:

@@ -57,13 +57,18 @@ def split_class(files, val_fraction, test_fraction, rng):
 
 def list_image_files(class_dir):
     files = []
-    for dirpath, _, filenames in os.walk(class_dir):
-        for name in filenames:
+    for dirpath, dirnames, filenames in os.walk(class_dir):
+        dirnames.sort()
+        for name in sorted(filenames):
             if not name.lower().endswith(IMAGE_EXTENSIONS):
                 continue
             path = os.path.join(dirpath, name)
             files.append(os.path.relpath(path, class_dir))
     return files
+
+
+def to_manifest_path(path):
+    return path.replace(os.sep, "/")
 
 
 def main():
@@ -94,7 +99,13 @@ def main():
             continue
         for name, split in split_class(files, args.val_fraction, args.test_fraction, rng):
             image_path = os.path.join(class_dir, name)
-            rows.append((os.path.relpath(image_path, out_dir), class_name, split))
+            rows.append(
+                (
+                    to_manifest_path(os.path.relpath(image_path, out_dir)),
+                    class_name,
+                    split,
+                )
+            )
 
     os.makedirs(out_dir, exist_ok=True)
     with open(out_path, "w", newline="", encoding="utf-8") as f:

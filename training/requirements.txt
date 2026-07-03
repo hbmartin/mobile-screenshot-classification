@@ -1,5 +1,5 @@
 tensorflow==2.16.2
-keras==3.11.3
+keras==3.13.2
 PyYAML==6.0.2
 Pillow==12.2.0
 numpy<2.0

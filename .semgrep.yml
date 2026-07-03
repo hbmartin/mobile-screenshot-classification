@@ -31,6 +31,19 @@ rules:
               ...
               $VAL = $HOLDOUT.skip(...)
 
+  - id: avoid-keras-directory-validation-split-without-shuffle
+    languages:
+      - python
+    severity: ERROR
+    message: "Do not use Keras directory validation_split with shuffle=False; it can split alphabetically by class."
+    pattern-either:
+      - pattern: tf.keras.utils.image_dataset_from_directory(..., validation_split=$SPLIT, ..., shuffle=False, ...)
+      - patterns:
+          - pattern: |
+              $COMMON = dict(..., validation_split=$SPLIT, ..., shuffle=False, ...)
+              ...
+              tf.keras.utils.image_dataset_from_directory(..., **$COMMON)
+
   - id: blocked-vulnerable-training-pins
     languages:
       - generic
@@ -38,9 +51,12 @@ rules:
     message: "This training dependency pin has known high-severity vulnerabilities; use a patched version."
     paths:
       include:
-        - training/requirements.txt
+        - /training/requirements.txt
     pattern-either:
       - pattern: Pillow==10.4.0
       - pattern: keras==3.0.0
       - pattern: keras==3.1.0
       - pattern: keras==3.2.0
+      - pattern: keras==3.11.3
+      - pattern-regex: '^keras==3\.(?:[0-9]|1[0-2])\.[0-9]+(?:\b|$)'
+      - pattern-regex: '^keras==3\.13\.[01](?:\b|$)'
