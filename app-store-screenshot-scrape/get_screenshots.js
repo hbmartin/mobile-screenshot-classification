@@ -20,9 +20,15 @@ const readline = require('readline');
 const INPUT_CSV = process.env.INPUT_CSV || 'deduped.csv';
 const OUT_DIR = process.env.OUT_DIR || 'screenshots';
 const COUNTRY = process.env.COUNTRY || 'us';
-const CONCURRENCY = parseInt(process.env.CONCURRENCY || '4', 10);
 const MAX_RETRIES = 4;
 const MANIFEST = path.join(OUT_DIR, 'manifest.jsonl');
+
+function parseConcurrency(value) {
+    const parsed = Number.parseInt(value || '4', 10);
+    return Number.isFinite(parsed) ? Math.max(1, parsed) : 4;
+}
+
+const CONCURRENCY = parseConcurrency(process.env.CONCURRENCY);
 
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -41,13 +47,18 @@ async function withRetries(fn, label) {
     }
 }
 
-function loadCompletedUrls() {
+function completedKey(appId, url) {
+    return `${appId}:${url}`;
+}
+
+function loadCompletedKeys() {
     const done = new Set();
     if (fs.existsSync(MANIFEST)) {
         for (const line of fs.readFileSync(MANIFEST, 'utf8').split('\n')) {
             if (!line.trim()) continue;
             try {
-                done.add(JSON.parse(line).url);
+                const item = JSON.parse(line);
+                if (item.appId && item.url) done.add(completedKey(item.appId, item.url));
             } catch {
                 // Ignore a torn line from an interrupted run.
             }
@@ -80,10 +91,11 @@ async function fetchScreenshots(appId, done, manifestStream) {
     console.log(`${appId}: ${app.screenshots.length} screenshots`);
     const dir = path.join(OUT_DIR, String(appId));
     for (const url of app.screenshots) {
-        if (done.has(url)) continue;
+        const key = completedKey(appId, url);
+        if (done.has(key)) continue;
         const info = await withRetries(() => downloadImage(url, dir), url);
         manifestStream.write(JSON.stringify({ appId, country: COUNTRY, url, ...info }) + '\n');
-        done.add(url);
+        done.add(key);
     }
 }
 
@@ -99,7 +111,7 @@ async function main() {
     }
 
     fs.mkdirSync(OUT_DIR, { recursive: true });
-    const done = loadCompletedUrls();
+    const done = loadCompletedKeys();
     const manifestStream = fs.createWriteStream(MANIFEST, { flags: 'a' });
 
     let next = 0;
@@ -115,7 +127,7 @@ async function main() {
             }
         }
     }
-    await Promise.all(Array.from({ length: Math.max(1, CONCURRENCY) }, worker));
+    await Promise.all(Array.from({ length: CONCURRENCY }, worker));
     manifestStream.end();
 
     console.log(`Finished ${ids.length} apps; ${failures} failed.`);

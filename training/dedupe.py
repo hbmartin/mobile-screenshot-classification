@@ -39,7 +39,7 @@ def dhash(path):
 
 
 def hamming(a, b):
-    return (a ^ b).bit_count()
+    return bin(a ^ b).count("1")
 
 
 def find_groups(hashes, threshold):

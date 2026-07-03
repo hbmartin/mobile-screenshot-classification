@@ -3,8 +3,9 @@
 Usage:
     python evaluate.py models/<run-name>
 
-Uses the config.yaml saved with the run, so the data split matches what the
-model was trained against. Writes the test-set confusion matrix to
+Uses the config.yaml saved with the run. Manifest mode reproduces the exact
+saved split; directory mode reproduces the split only if the directory contents
+are unchanged. Writes the test-set confusion matrix to
 <run-dir>/confusion_matrix.csv and prints the most confused class pairs and
 the weakest classes.
 """
@@ -44,7 +45,7 @@ def report_confusions(y_true, y_pred, class_names, out_path, top_confusions):
     num_classes = len(class_names)
     matrix = tf.math.confusion_matrix(y_true, y_pred, num_classes=num_classes).numpy()
 
-    with open(out_path, "w", newline="") as f:
+    with open(out_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(["true\\predicted"] + class_names)
         for name, row in zip(class_names, matrix):
@@ -81,13 +82,18 @@ def report_confusions(y_true, y_pred, class_names, out_path, top_confusions):
 
 def main():
     args = parse_args()
-    with open(os.path.join(args.model_dir, "config.yaml")) as f:
+    with open(os.path.join(args.model_dir, "config.yaml"), encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
-    with open(os.path.join(args.model_dir, "class_names.json")) as f:
+    with open(os.path.join(args.model_dir, "class_names.json"), encoding="utf-8") as f:
         class_names = json.load(f)
 
     tf.keras.utils.set_random_seed(cfg["seed"])
-    _, val_ds, test_ds, _ = load_datasets(cfg)
+    _, val_ds, test_ds, dataset_class_names = load_datasets(cfg)
+    if dataset_class_names != class_names:
+        raise RuntimeError(
+            "Saved class_names.json does not match the dataset class ordering. "
+            "Recreate the manifest or evaluate against the data used for training."
+        )
 
     # compile=False because the training loss may be a custom (label-smoothed)
     # function; recompile with the plain sparse loss for scoring.
