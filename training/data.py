@@ -77,14 +77,17 @@ def _list_directory_rows(data_dir):
         class_dir = os.path.join(data_dir, class_name)
         if not os.path.isdir(class_dir):
             continue
-        class_index = len(class_names)
-        class_names.append(class_name)
+        class_rows = []
         for dirpath, dirnames, filenames in os.walk(class_dir):
             dirnames.sort()
             for name in sorted(filenames):
                 if not name.lower().endswith(IMAGE_EXTENSIONS):
                     continue
-                rows.append((os.path.join(dirpath, name), class_index))
+                class_rows.append(os.path.join(dirpath, name))
+        if class_rows:
+            class_index = len(class_names)
+            class_names.append(class_name)
+            rows.extend((path, class_index) for path in class_rows)
     return rows, class_names
 
 
@@ -107,10 +110,18 @@ def _rows_to_dataset(rows, image_size, data_cfg, seed, shuffle):
 
 def _shuffle_buffer_size(data_cfg, count):
     configured = data_cfg.get("shuffle_buffer_size", DEFAULT_SHUFFLE_BUFFER_SIZE)
-    try:
+    if isinstance(configured, bool):
+        raise ValueError("data.shuffle_buffer_size must be a positive integer")
+    if isinstance(configured, int):
+        buffer_size = configured
+    elif isinstance(configured, float):
+        if not configured.is_integer():
+            raise ValueError("data.shuffle_buffer_size must be a positive integer")
         buffer_size = int(configured)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("data.shuffle_buffer_size must be a positive integer") from exc
+    elif isinstance(configured, str) and configured.strip().isdigit():
+        buffer_size = int(configured)
+    else:
+        raise ValueError("data.shuffle_buffer_size must be a positive integer")
     if buffer_size <= 0:
         raise ValueError("data.shuffle_buffer_size must be a positive integer")
     return min(count, buffer_size)
@@ -140,6 +151,8 @@ def _load_from_manifest(cfg):
     def build(split, shuffle):
         paths = [p for p, _, s in rows if s == split]
         labels = [class_index[c] for _, c, s in rows if s == split]
+        if not paths:
+            raise ValueError(f"Manifest split '{split}' produced no images")
         ds = tf.data.Dataset.from_tensor_slices((paths, labels))
         if shuffle and len(paths) > 1:
             ds = ds.shuffle(
