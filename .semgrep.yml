@@ -51,7 +51,7 @@ rules:
     message: "This training dependency pin has known high-severity vulnerabilities; use a patched version."
     paths:
       include:
-        - /training/requirements.txt
+        - training/requirements.txt
     pattern-either:
       - pattern: Pillow==10.4.0
       - pattern: keras==3.0.0
